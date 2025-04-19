@@ -1,0 +1,136 @@
+@startuml Octopus
+
+skinparam backgroundColor white
+skinparam handwritten false
+skinparam defaultFontName Arial
+skinparam sequenceArrowThickness 2
+skinparam participantPadding 20
+skinparam boxPadding 10
+
+' Actors and Participants
+actor Admin
+actor User
+participant "Client Application" as App
+participant "NFT Contract" as NFTContract
+participant "IPCM Contract" as IPCMContract
+database "IPFS" as IPFS
+participant "Indexer Service" as Indexer
+database "Database" as DB
+
+' Title
+title Octopus: CIDMapper - NFT + IPCM + IPFS Flow
+
+' Initialization Phase
+box "Initialization Phase" #E5F2FF
+  group "Contract Deployment"
+    Admin -> IPCMContract : deploy()
+    activate IPCMContract
+    IPCMContract --> Admin : return IPCM contract address
+    deactivate IPCMContract
+    
+    Admin -> NFTContract : deploy(ipcm_contract_address)
+    activate NFTContract
+    NFTContract --> Admin : return NFT contract address
+    deactivate NFTContract
+    
+    Admin -> Indexer : configure(nft_address, ipcm_address)
+    activate Indexer
+    Indexer -> Indexer : start listening for events
+    Indexer --> Admin : indexer running confirmation
+    deactivate Indexer
+  end
+end box
+
+' NFT Minting Phase
+box "NFT Minting Phase" #E8F8E8
+  group "Create Initial Metadata"
+    User -> App : prepare initial metadata
+    App -> IPFS : upload(metadata)
+    activate IPFS
+    IPFS --> App : return initial_cid
+    deactivate IPFS
+  end
+  
+  group "Initialize IPCM Mapping"
+    App -> IPCMContract : updateMapping(token_id, initial_cid)
+    activate IPCMContract
+    IPCMContract -> IPCMContract : store mapping
+    IPCMContract -> IPCMContract : emit UpdateMapping event
+    IPCMContract --> App : mapping confirmed
+    deactivate IPCMContract
+    
+    Indexer -> IPCMContract : listen(UpdateMapping)
+    activate Indexer
+    Indexer -> DB : store(token_id, initial_cid, timestamp)
+    deactivate Indexer
+  end
+  
+  group "Mint NFT"
+    App -> NFTContract : mint(token_id, owner_address)
+    activate NFTContract
+    NFTContract -> NFTContract : create token with reference to IPCM key
+    NFTContract -> NFTContract : emit Mint event
+    NFTContract --> App : token minted confirmation
+    deactivate NFTContract
+  end
+end box
+
+' Metadata Update Phase
+box "Metadata Update Phase" #FFF8E1
+  group "Update Metadata Flow"
+    User -> App : submit updated data
+    App -> IPFS : upload(updated_metadata)
+    activate IPFS
+    IPFS --> App : return new_cid
+    deactivate IPFS
+    
+    App -> IPCMContract : updateMapping(token_id, new_cid)
+    activate IPCMContract
+    IPCMContract -> IPCMContract : verify permissions
+    IPCMContract -> IPCMContract : update mapping
+    IPCMContract -> IPCMContract : emit UpdateMapping event
+    IPCMContract --> App : update confirmed
+    deactivate IPCMContract
+    
+    Indexer -> IPCMContract : listen(UpdateMapping)
+    activate Indexer
+    Indexer -> DB : store(token_id, new_cid, timestamp)
+    deactivate Indexer
+  end
+end box
+
+' Data Access Phase
+box "Data Access Phase" #F9E4FF
+  group "Query Metadata Flow"
+    User -> App : request token metadata
+    
+    App -> Indexer : get_latest_cid(token_id)
+    activate Indexer
+    Indexer -> DB : query
+    DB --> Indexer : return latest CID
+    Indexer --> App : return latest_cid
+    deactivate Indexer
+    
+    App -> IPFS : fetch(latest_cid)
+    activate IPFS
+    IPFS --> App : return metadata content
+    deactivate IPFS
+    
+    App --> User : display metadata
+  end
+  
+  group "Historical Data Query"
+    User -> App : request metadata history
+    
+    App -> Indexer : get_history(token_id)
+    activate Indexer
+    Indexer -> DB : query historical records
+    DB --> Indexer : return all CIDs and timestamps
+    Indexer --> App : return history[]
+    deactivate Indexer
+    
+    App --> User : display metadata history
+  end
+end box
+
+@enduml
