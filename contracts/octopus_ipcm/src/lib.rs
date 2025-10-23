@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol};
 
 /// Octopus: CIDMapper - IPCM Contract Implementation
 /// Manages mappings between token IDs and their IPFS CIDs
@@ -34,12 +34,12 @@ impl OctopusIPCMContract {
         Self::require_auth(&env, &caller);
         
         // Get current mapping if it exists
-        let mapping_key = Self::get_mapping_key(&token_id);
-        let old_cid = if env.storage().persistent().has(&mapping_key) {
-            env.storage().persistent().get::<_, String>(&mapping_key).unwrap_or(String::from_str(&env, ""))
-        } else {
-            String::from_str(&env, "")
-        };
+        let mapping_key = (MAPPING_KEY, token_id.clone());
+        let old_cid = env
+            .storage()
+            .persistent()
+            .get::<_, String>(&mapping_key)
+            .unwrap_or_else(|| String::from_str(&env, ""));
         
         // Update the mapping
         env.storage().persistent().set(&mapping_key, &cid);
@@ -53,12 +53,11 @@ impl OctopusIPCMContract {
     
     /// Get a token's current CID mapping
     pub fn get_mapping(env: Env, token_id: String) -> String {
-        let mapping_key = Self::get_mapping_key(&token_id);
-        if env.storage().persistent().has(&mapping_key) {
-            env.storage().persistent().get(&mapping_key).unwrap()
-        } else {
-            String::from_str(&env, "")
-        }
+        let mapping_key = (MAPPING_KEY, token_id);
+        env.storage()
+            .persistent()
+            .get(&mapping_key)
+            .unwrap_or_else(|| String::from_str(&env, ""))
     }
     
     /// Transfer ownership of the contract
@@ -90,13 +89,6 @@ impl OctopusIPCMContract {
     /// Check if the caller is authorized (for now just the owner)
     fn require_auth(env: &Env, caller: &Address) {
         Self::require_owner(env, caller);
-    }
-    
-    /// Create a unique storage key for each token mapping
-    fn get_mapping_key(token_id: &String) -> Symbol {
-        // In a production contract, you would use a more sophisticated approach
-        // to generate unique storage keys for different token IDs
-        Symbol::new(token_id.to_string())
     }
 }
 

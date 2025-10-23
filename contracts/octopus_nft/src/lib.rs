@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, Map, String, Symbol, Vec};
 
 /// Octopus: CIDMapper - NFT Contract Implementation
 /// Handles token minting, transfers, and ownership
@@ -10,6 +10,7 @@ const ADMIN_KEY: Symbol = Symbol::short("ADMIN");
 const IPCM_CONTRACT_KEY: Symbol = Symbol::short("IPCM");
 const TOKENS_KEY: Symbol = Symbol::short("TOKENS");
 const OWNERS_KEY: Symbol = Symbol::short("OWNERS");
+const IPCM_REF_KEY: Symbol = Symbol::short("IPCMREF");
 
 // Define events
 const MINT_EVENT: Symbol = Symbol::short("MINT");
@@ -41,10 +42,9 @@ impl OctopusNFTContract {
         Self::require_admin(&env, &caller);
         
         // Check if token already exists
-        let tokens_key = Symbol::short("TOKENS");
         let mut tokens: Map<String, Address> = env.storage()
             .persistent()
-            .get(&tokens_key)
+            .get(&TOKENS_KEY)
             .unwrap_or_else(|| Map::new(&env));
             
         if tokens.contains_key(&token_id) {
@@ -53,10 +53,10 @@ impl OctopusNFTContract {
         
         // Assign the token to the owner
         tokens.set(token_id.clone(), owner.clone());
-        env.storage().persistent().set(&tokens_key, &tokens);
+        env.storage().persistent().set(&TOKENS_KEY, &tokens);
         
         // Update the owner's tokens
-        let owner_key = Self::get_owner_key(&owner);
+        let owner_key = (OWNERS_KEY, owner.clone());
         let mut owner_tokens: Vec<String> = env.storage()
             .persistent()
             .get(&owner_key)
@@ -66,7 +66,7 @@ impl OctopusNFTContract {
         env.storage().persistent().set(&owner_key, &owner_tokens);
         
         // Store the IPCM key reference with the token
-        let ipcm_ref_key = Self::get_token_ipcm_key(&token_id);
+        let ipcm_ref_key = (IPCM_REF_KEY, token_id.clone());
         env.storage().persistent().set(&ipcm_ref_key, &ipcm_key);
         
         // Emit mint event
@@ -79,10 +79,9 @@ impl OctopusNFTContract {
     /// Transfer an NFT from one owner to another
     pub fn transfer(env: Env, caller: Address, token_id: String, to: Address) {
         // Check if caller owns the token
-        let tokens_key = Symbol::short("TOKENS");
         let tokens: Map<String, Address> = env.storage()
             .persistent()
-            .get(&tokens_key)
+            .get(&TOKENS_KEY)
             .unwrap_or_else(|| Map::new(&env));
             
         if !tokens.contains_key(&token_id) {
@@ -97,7 +96,7 @@ impl OctopusNFTContract {
         caller.require_auth();
         
         // Remove token from current owner's list
-        let owner_key = Self::get_owner_key(&current_owner);
+        let owner_key = (OWNERS_KEY, current_owner.clone());
         let mut owner_tokens: Vec<String> = env.storage()
             .persistent()
             .get(&owner_key)
@@ -114,7 +113,7 @@ impl OctopusNFTContract {
         env.storage().persistent().set(&owner_key, &new_owner_tokens);
         
         // Add token to new owner's list
-        let new_owner_key = Self::get_owner_key(&to);
+        let new_owner_key = (OWNERS_KEY, to.clone());
         let mut new_owner_token_list: Vec<String> = env.storage()
             .persistent()
             .get(&new_owner_key)
@@ -126,7 +125,7 @@ impl OctopusNFTContract {
         // Update token ownership mapping
         let mut updated_tokens = tokens.clone();
         updated_tokens.set(token_id.clone(), to.clone());
-        env.storage().persistent().set(&tokens_key, &updated_tokens);
+        env.storage().persistent().set(&TOKENS_KEY, &updated_tokens);
         
         // Emit transfer event
         env.events().publish(
@@ -137,10 +136,9 @@ impl OctopusNFTContract {
     
     /// Get the owner of a token
     pub fn owner_of(env: Env, token_id: String) -> Address {
-        let tokens_key = Symbol::short("TOKENS");
         let tokens: Map<String, Address> = env.storage()
             .persistent()
-            .get(&tokens_key)
+            .get(&TOKENS_KEY)
             .unwrap_or_else(|| Map::new(&env));
             
         if !tokens.contains_key(&token_id) {
@@ -152,7 +150,7 @@ impl OctopusNFTContract {
     
     /// Get the IPCM key for a token
     pub fn get_ipcm_key(env: Env, token_id: String) -> String {
-        let ipcm_ref_key = Self::get_token_ipcm_key(&token_id);
+        let ipcm_ref_key = (IPCM_REF_KEY, token_id.clone());
         
         if !env.storage().persistent().has(&ipcm_ref_key) {
             panic!("Token does not exist or has no IPCM key");
@@ -163,7 +161,7 @@ impl OctopusNFTContract {
     
     /// Get all tokens owned by an address
     pub fn tokens_of(env: Env, owner: Address) -> Vec<String> {
-        let owner_key = Self::get_owner_key(&owner);
+        let owner_key = (OWNERS_KEY, owner);
         
         env.storage()
             .persistent()
@@ -174,10 +172,9 @@ impl OctopusNFTContract {
     /// Burn (destroy) a token
     pub fn burn(env: Env, caller: Address, token_id: String) {
         // Check if caller owns the token
-        let tokens_key = Symbol::short("TOKENS");
         let tokens: Map<String, Address> = env.storage()
             .persistent()
-            .get(&tokens_key)
+            .get(&TOKENS_KEY)
             .unwrap_or_else(|| Map::new(&env));
             
         if !tokens.contains_key(&token_id) {
@@ -192,7 +189,7 @@ impl OctopusNFTContract {
         caller.require_auth();
         
         // Remove token from owner's list
-        let owner_key = Self::get_owner_key(&current_owner);
+        let owner_key = (OWNERS_KEY, current_owner.clone());
         let mut owner_tokens: Vec<String> = env.storage()
             .persistent()
             .get(&owner_key)
@@ -211,10 +208,10 @@ impl OctopusNFTContract {
         // Remove token from tokens mapping
         let mut updated_tokens = tokens.clone();
         updated_tokens.remove(&token_id);
-        env.storage().persistent().set(&tokens_key, &updated_tokens);
+        env.storage().persistent().set(&TOKENS_KEY, &updated_tokens);
         
         // Remove the IPCM key reference
-        let ipcm_ref_key = Self::get_token_ipcm_key(&token_id);
+        let ipcm_ref_key = (IPCM_REF_KEY, token_id.clone());
         env.storage().persistent().remove(&ipcm_ref_key);
         
         // Emit burn event
@@ -238,16 +235,6 @@ impl OctopusNFTContract {
     /// Get the IPCM contract address
     fn get_ipcm_contract(env: &Env) -> Address {
         env.storage().instance().get(&IPCM_CONTRACT_KEY).unwrap()
-    }
-    
-    /// Create a unique storage key for an owner's tokens
-    fn get_owner_key(owner: &Address) -> Symbol {
-        Symbol::new(&format!("OWNER_{}", owner.to_string()))
-    }
-    
-    /// Create a unique storage key for a token's IPCM reference
-    fn get_token_ipcm_key(token_id: &String) -> Symbol {
-        Symbol::new(&format!("IPCM_{}", token_id.to_string()))
     }
 }
 
